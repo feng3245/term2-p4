@@ -7,6 +7,12 @@
 // for convenience
 using json = nlohmann::json;
 
+double best_err;
+  int flowcount;
+  int pidflow;
+  bool firstmeasurement;
+  double p[3] = {2.922685544036904, 10.326751090002992, 0.49327083233726665};
+  double dp[3] = {1.0,1.0,1.0};
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
@@ -34,7 +40,10 @@ int main()
 
   PID pid;
   // TODO: Initialize the pid variable.
-
+  best_err = 0;
+  flowcount = 0;
+  pidflow = 0;
+  firstmeasurement = true;
   h.onMessage([&pid](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -57,13 +66,73 @@ int main()
           * NOTE: Feel free to play around with the throttle and speed. Maybe use
           * another PID controller to control the speed!
           */
+	bool flowdone = false;
+	if(dp[0]+dp[1]+dp[2]>0.00001)
+	{  
+	if(firstmeasurement)
+	{
+	     best_err = cte;
+	     firstmeasurement = false;
+	}
+		if(flowcount == 2)
+	{
+		if(abs(cte) < abs(best_err))
+		{
+			best_err =cte;
+			dp[pidflow%3] *= 1.1;
+		}
+		else
+		{
+			p[pidflow%3] += dp[pidflow%3];
+			dp[pidflow%3] *= 0.9;
+		}
+
+		flowcount =0;
+		pidflow++;
+std::cout << "output p change in flow " << pidflow <<" " << p[pidflow%3] << std::endl;
+	flowdone = true;
+	}
+   if(flowcount == 1)
+	{
+		if(abs(cte) < abs(best_err))
+		{
+			best_err = cte;
+			dp[pidflow%3]*=1.1;
+			flowcount =0;
+			pidflow++;
+		}
+		else
+		{
+			p[pidflow%3] -= 2*dp[pidflow%3];
+			flowcount++;
+		}
+		std::cout << "output p change in flow " << pidflow <<" " << p[pidflow%3] << std::endl;
+	flowdone = true;
+	}
+
+
+	  if(flowcount == 0 && !flowdone)
+	  {
+		p[pidflow%3]+=dp[pidflow%3];
+		flowcount ++;
+std::cout << "output p change in flow " << pidflow <<" " << p[pidflow%3] << std::endl;
+	  }
           
+       	}
+	pid.Init(p[0], p[1], p[2]);
+
+	          //twiddle as we go
+
+	  pid.UpdateError(cte);
+	  steer_value = fmod(pid.GetSteering(cte),1.0);
           // DEBUG
+ std::cout <<"flow " <<flowcount << std::endl;
+	  std::cout << p[0] <<" " << p[1] << " " << p[2] << std::endl;
           std::cout << "CTE: " << cte << " Steering Value: " << steer_value << std::endl;
 
           json msgJson;
           msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = 0.3;
+          msgJson["throttle"] = 0.1;
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
